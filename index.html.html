@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>3D Model Viewer</title>
+<style>
+  :root {
+    --bg: #0f0f13;
+    --panel: #18181f;
+    --border: #2a2a38;
+    --accent: #6c63ff;
+    --accent2: #a78bfa;
+    --text: #e8e8f0;
+    --muted: #8888a8;
+    --radius: 10px;
+    --font: 'Inter', system-ui, sans-serif;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    box-sizing: border-box;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; background: var(--bg); color: var(--text); font-family: var(--font); overflow: hidden; }
+
+  #app { display: flex; width: 100%; height: 100%; position: relative; }
+
+  /* Canvas zone */
+  #canvas-wrap {
+    flex: 1;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+  }
+  canvas { display: block; width: 100% !important; height: 100% !important; touch-action: none; }
+
+  /* Drop overlay */
+  #drop-overlay {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 12px;
+    pointer-events: none;
+    transition: opacity .25s;
+    z-index: 10;
+  }
+  #drop-overlay.hidden { opacity: 0; }
+  #drop-icon { font-size: 52px; opacity: .5; }
+  #drop-text { font-size: 1.1rem; color: var(--muted); letter-spacing: .02em; }
+  #drop-hint { font-size: .82rem; color: #55556a; }
+
+  /* Drop active flash */
+  #drop-active {
+    position: absolute; inset: 10px;
+    border: 2.5px dashed var(--accent);
+    border-radius: var(--radius);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity .15s;
+    z-index: 20;
+  }
+  #drop-active.show { opacity: 1; }
+
+  /* Panel */
+  #panel {
+    width: 260px;
+    min-width: 200px;
+    max-width: 300px;
+    background: var(--panel);
+    border-left: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    z-index: 30;
+    flex-shrink: 0;
+  }
+  #panel-header {
+    padding: 18px 16px 14px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 10px;
+  }
+  #panel-header h1 { font-size: .95rem; font-weight: 600; letter-spacing: .01em; }
+  .badge {
+    font-size: .66rem;
+    background: var(--accent);
+    color: #fff;
+    padding: 2px 7px;
+    border-radius: 99px;
+    font-weight: 600;
+    letter-spacing: .04em;
+  }
+
+  .section { padding: 14px 16px; border-bottom: 1px solid var(--border); }
+  .section-label { font-size: .68rem; color: var(--muted); font-weight: 600; letter-spacing: .1em; text-transform: uppercase; margin-bottom: 10px; }
+
+  /* Controls */
+  .ctrl { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; }
+  .ctrl:last-child { margin-bottom: 0; }
+  .ctrl label { font-size: .78rem; color: var(--text); display: flex; justify-content: space-between; }
+  .ctrl label span { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  input[type=range] {
+    -webkit-appearance: none;
+    width: 100%; height: 4px;
+    border-radius: 2px;
+    background: var(--border);
+    outline: none;
+    cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: var(--accent2);
+    cursor: pointer;
+    box-shadow: 0 0 0 3px rgba(108,99,255,.2);
+  }
+  input[type=range]::-moz-range-thumb {
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: var(--accent2);
+    border: none;
+    cursor: pointer;
+  }
+
+  input[type=color] {
+    -webkit-appearance: none;
+    width: 100%; height: 28px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: none;
+    cursor: pointer;
+    padding: 2px;
+  }
+  input[type=color]::-webkit-color-swatch-wrapper { padding: 0; }
+  input[type=color]::-webkit-color-swatch { border-radius: 4px; border: none; }
+
+  .toggle-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .toggle-row:last-child { margin-bottom: 0; }
+  .toggle-row label { font-size: .78rem; }
+
+  .toggle {
+    position: relative; width: 34px; height: 18px;
+    background: var(--border); border-radius: 9px; cursor: pointer;
+    transition: background .2s;
+    flex-shrink: 0;
+  }
+  .toggle.on { background: var(--accent); }
+  .toggle::after {
+    content: '';
+    position: absolute; top: 3px; left: 3px;
+    width: 12px; height: 12px;
+    border-radius: 50%; background: #fff;
+    transition: left .2s;
+  }
+  .toggle.on::after { left: 19px; }
+
+  select {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 6px 8px;
+    font-size: .78rem;
+    cursor: pointer;
+    outline: none;
+  }
+  select:focus { border-color: var(--accent); }
+
+  /* Load button */
+  #load-btn {
+    margin: 12px 16px 16px;
+    padding: 9px 0;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    border: none;
+    border-radius: var(--radius);
+    color: #fff;
+    font-size: .82rem;
+    font-weight: 600;
+    cursor: pointer;
+    letter-spacing: .03em;
+    transition: opacity .15s;
+  }
+  #load-btn:hover { opacity: .88; }
+
+  /* Loading spinner */
+  #spinner {
+    position: absolute; inset: 0; display: none;
+    align-items: center; justify-content: center;
+    background: rgba(15,15,19,.6);
+    z-index: 40; flex-direction: column; gap: 14px;
+  }
+  #spinner.show { display: flex; }
+  .spin {
+    width: 36px; height: 36px;
+    border: 3px solid var(--border);
+    border-top-color: var(--accent2);
+    border-radius: 50%;
+    animation: spin .7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #spinner p { font-size: .82rem; color: var(--muted); }
+
+  /* Perf indicator */
+  #perf {
+    position: absolute; bottom: 14px; left: 14px;
+    font-size: .7rem; color: var(--muted);
+    font-family: monospace;
+    background: rgba(15,15,19,.7);
+    padding: 4px 8px;
+    border-radius: 5px;
+    pointer-events: none;
+    z-index: 5;
+  }
+
+  /* Static fallback (reduced-motion / no-WebGL) */
+  #fallback {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    height: 100%;
+    padding: 24px;
+    text-align: center;
+    color: var(--muted);
+  }
+  #fallback svg { opacity: .35; }
+  #fallback p { max-width: 320px; font-size: .9rem; line-height: 1.6; }
+
+  /* Mobile panel collapse */
+  #panel-toggle {
+    display: none;
+    position: absolute; top: 14px; right: 14px;
+    z-index: 50;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    padding: 8px 12px;
+    font-size: .8rem;
+    cursor: pointer;
+  }
+
+  @media (max-width: 640px) {
+    #panel {
+      position: absolute; right: 0; top: 0; bottom: 0;
+      transform: translateX(100%);
+      transition: transform .25s;
+      border-left: 1px solid var(--border);
+      width: 80%;
+      max-width: 280px;
+    }
+    #panel.open { transform: translateX(0); }
+    #panel-toggle { display: block; }
+    #perf { display: none; }
+  }
+
+  /* Toast */
+  #toast {
+    position: absolute; bottom: 20px; left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: var(--panel); border: 1px solid var(--border);
+    color: var(--text); font-size: .8rem;
+    padding: 8px 16px; border-radius: 99px;
+    opacity: 0; pointer-events: none;
+    transition: opacity .2s, transform .2s;
+    z-index: 60;
+    white-space: nowrap;
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="canvas-wrap">
+    <div id="drop-active"></div>
+    <div id="drop-overlay" id="drop-overlay">
+      <div id="drop-icon">📦</div>
+      <div id="drop-text">Drop a .glb file to load your model</div>
+      <div id="drop-hint">Or use the button in the panel →</div>
+    </div>
+    <div id="fallback">
+      <svg width="64" height="64" viewBox="0 0 64 64" fill="none"><rect x="8" y="8" width="48" height="48" rx="8" stroke="#6c63ff" stroke-width="2"/><path d="M20 44l12-20 12 20" stroke="#6c63ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="32" cy="24" r="3" fill="#6c63ff"/></svg>
+      <p>3D rendering is unavailable in this context. Try opening this page in a modern desktop browser with hardware acceleration enabled.</p>
+    </div>
+    <div id="spinner"><div class="spin"></div><p>Loading model…</p></div>
+    <div id="perf">FPS: —</div>
+  </div>
+
+  <aside id="panel">
+    <div id="panel-header">
+      <h1>3D Configurator</h1>
+      <span class="badge">LIVE</span>
+    </div>
+
+    <div class="section">
+      <div class="section-label">Material</div>
+      <div class="ctrl">
+        <label>Color</label>
+        <input type="color" id="c-color" value="#ffffff">
+      </div>
+      <div class="ctrl">
+        <label>Metalness <span id="v-metal">0.0</span></label>
+        <input type="range" id="c-metal" min="0" max="1" step="0.01" value="0">
+      </div>
+      <div class="ctrl">
+        <label>Roughness <span id="v-rough">0.5</span></label>
+        <input type="range" id="c-rough" min="0" max="1" step="0.01" value="0.5">
+      </div>
+      <div class="toggle-row">
+        <label>Wireframe</label>
+        <div class="toggle" id="t-wire"></div>
+      </div>
+      <div class="toggle-row">
+        <label>Flat shading</label>
+        <div class="toggle" id="t-flat"></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-label">Lighting</div>
+      <div class="ctrl">
+        <label>Env preset</label>
+        <select id="c-env">
+          <option value="studio">Studio</option>
+          <option value="sunset">Sunset</option>
+          <option value="dawn">Dawn</option>
+          <option value="night">Night</option>
+          <option value="warehouse">Warehouse</option>
+          <option value="forest">Forest</option>
+          <option value="apartment">Apartment</option>
+          <option value="city">City</option>
+          <option value="lobby">Lobby</option>
+        </select>
+      </div>
+      <div class="ctrl">
+        <label>Exposure <span id="v-exp">1.0</span></label>
+        <input type="range" id="c-exp" min="0.2" max="3" step="0.05" value="1">
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-label">Animation</div>
+      <div class="ctrl">
+        <label>Auto-rotate <span id="v-rot">1.0</span></label>
+        <input type="range" id="c-rot" min="0" max="5" step="0.1" value="1">
+      </div>
+      <div class="toggle-row">
+        <label>Shadows</label>
+        <div class="toggle on" id="t-shadow"></div>
+      </div>
+      <div class="ctrl">
+        <label>Camera FOV <span id="v-fov">45</span>°</label>
+        <input type="range" id="c-fov" min="20" max="100" step="1" value="45">
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-label">Load Model</div>
+      <div class="ctrl">
+        <label>Preset model</label>
+        <select id="c-preset">
+          <option value="box">Geometric composition</option>
+          <option value="torus">Torus knot</option>
+          <option value="sphere">Sphere cluster</option>
+        </select>
+      </div>
+    </div>
+
+    <button id="load-btn">📂 Load GLB file</button>
+    <input type="file" id="file-input" accept=".glb,.gltf" style="display:none">
+  </aside>
+</div>
+
+<button id="panel-toggle">⚙️ Config</button>
+<div id="toast"></div>
+
+<!-- Three.js r128 UMD bundle -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<!-- GLTFLoader + OrbitControls via jsDelivr r128 -->
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/RGBELoader.js"></script>
+<script>
+'use strict';
+
+// ── Reduced-motion / WebGL check ──────────────────────────────────────────
+const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function hasWebGL() {
+  try {
+    const c = document.createElement('canvas');
+    return !!(window.WebGLRenderingContext && (c.getContext('webgl') || c.getContext('experimental-webgl')));
+  } catch(e) { return false; }
+}
+
+if (!hasWebGL()) {
+  document.getElementById('fallback').style.display = 'flex';
+  document.getElementById('drop-overlay').style.display = 'none';
+  // stop here
+  throw new Error('No WebGL');
+}
+
+// ── Scene setup ───────────────────────────────────────────────────────────
+const wrap = document.getElementById('canvas-wrap');
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(wrap.clientWidth, wrap.clientHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.physicallyCorrectLights = true;
+renderer.outputEncoding = THREE.sRGBEncoding;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+wrap.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0f0f13);
+
+const camera = new THREE.PerspectiveCamera(45, wrap.clientWidth / wrap.clientHeight, 0.01, 1000);
+camera.position.set(0, 1.2, 3.5);
+
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.07;
+controls.minDistance = 0.3;
+controls.maxDistance = 30;
+controls.autoRotate = true;
+controls.autoRotateSpeed = 1.0;
+
+// ── Lights ────────────────────────────────────────────────────────────────
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+scene.add(ambientLight);
+
+const dirLight = new THREE.DirectionalLight(0xffffff, 1.6);
+dirLight.position.set(3, 5, 4);
+dirLight.castShadow = true;
+dirLight.shadow.mapSize.set(1024, 1024);
+dirLight.shadow.camera.near = 0.1;
+dirLight.shadow.camera.far = 30;
+dirLight.shadow.camera.left = -5;
+dirLight.shadow.camera.right = 5;
+dirLight.shadow.camera.top = 5;
+dirLight.shadow.camera.bottom = -5;
+dirLight.shadow.bias = -0.0005;
+scene.add(dirLight);
+
+const fillLight = new THREE.DirectionalLight(0x8888ff, 0.4);
+fillLight.position.set(-3, 1, -2);
+scene.add(fillLight);
+
+// Ground plane
+const ground = new THREE.Mesh(
+  new THREE.CircleGeometry(6, 64),
+  new THREE.ShadowMaterial({ opacity: 0.35 })
+);
+ground.rotation.x = -Math.PI / 2;
+ground.position.y = -0.001;
+ground.receiveShadow = true;
+scene.add(ground);
+
+// Grid
+const grid = new THREE.GridHelper(10, 20, 0x2a2a38, 0x1e1e28);
+grid.position.y = 0;
+scene.add(grid);
+
+// ── State ─────────────────────────────────────────────────────────────────
+let currentModel = null;
+let currentMeshes = [];
+let materialColor = new THREE.Color(0xffffff);
+let metalness = 0;
+let roughness = 0.5;
+let wireframe = false;
+let flatShading = false;
+let autoRotateSpeed = prefersReducedMotion ? 0 : 1.0;
+let shadowsOn = true;
+
+// ── Default procedural model ──────────────────────────────────────────────
+function buildDefaultModel(type = 'box') {
+  const group = new THREE.Group();
+
+  if (type === 'box') {
+    const mats = [
+      new THREE.MeshStandardMaterial({ color: 0x6c63ff, metalness: 0.2, roughness: 0.4 }),
+      new THREE.MeshStandardMaterial({ color: 0xa78bfa, metalness: 0.5, roughness: 0.3 }),
+      new THREE.MeshStandardMaterial({ color: 0x38bdf8, metalness: 0.1, roughness: 0.6 }),
+    ];
+    const configs = [
+      { geo: new THREE.BoxGeometry(1,1,1), pos: [0,0.5,0], mat: 0 },
+      { geo: new THREE.BoxGeometry(0.6,0.6,0.6), pos: [0.9,0.3,-0.3], mat: 1, rot:[.3,.5,.1] },
+      { geo: new THREE.IcosahedronGeometry(0.4,0), pos: [-0.8,0.4,0.2], mat: 2 },
+      { geo: new THREE.CylinderGeometry(0.1,0.1,1.2,12), pos: [0,0.5,0.9], mat: 1, rot:[0,0,0] },
+    ];
+    configs.forEach(c => {
+      const m = new THREE.Mesh(c.geo, mats[c.mat].clone());
+      m.position.set(...c.pos);
+      if (c.rot) m.rotation.set(...c.rot);
+      m.castShadow = true; m.receiveShadow = true;
+      group.add(m);
+    });
+  } else if (type === 'torus') {
+    const mat = new THREE.MeshStandardMaterial({ color: 0x6c63ff, metalness: 0.3, roughness: 0.35 });
+    const m = new THREE.Mesh(new THREE.TorusKnotGeometry(0.7,0.22,128,16), mat);
+    m.castShadow = true; m.receiveShadow = true;
+    m.position.y = 0.9;
+    group.add(m);
+  } else if (type === 'sphere') {
+    const positions = [
+      [0,0.5,0,0.5],[0.9,0.3,0,0.35],[-0.8,0.35,0.2,0.3],[0.2,1.1,0.5,0.22],[-0.3,0.8,-0.5,0.28]
+    ];
+    positions.forEach(([x,y,z,r],i) => {
+      const mat = new THREE.MeshStandardMaterial({
+        color: new THREE.Color().setHSL(0.65 + i*0.07, 0.7, 0.55),
+        metalness: 0.2, roughness: 0.4
+      });
+      const m = new THREE.Mesh(new THREE.SphereGeometry(r,32,32), mat);
+      m.position.set(x,y,z);
+      m.castShadow = true; m.receiveShadow = true;
+      group.add(m);
+    });
+  }
+  return group;
+}
+
+function loadModel(group) {
+  if (currentModel) { scene.remove(currentModel); }
+  currentModel = group;
+  currentMeshes = [];
+  group.traverse(o => { if (o.isMesh) currentMeshes.push(o); });
+  scene.add(group);
+  fitCamera(group);
+  hideDropOverlay();
+  applyMaterialSettings();
+}
+
+function fitCamera(obj) {
+  const box = new THREE.Box3().setFromObject(obj);
+  const center = box.getCenter(new THREE.Vector3());
+  const size = box.getSize(new THREE.Vector3());
+  const maxDim = Math.max(size.x, size.y, size.z);
+  const fov = camera.fov * (Math.PI / 180);
+  let dist = (maxDim / 2) / Math.tan(fov / 2) * 1.8;
+  dist = Math.max(dist, 1);
+  obj.position.sub(center);
+  obj.position.y += size.y / 2;
+  camera.position.set(0, size.y * 0.5, dist);
+  camera.near = dist * 0.001;
+  camera.far = dist * 100;
+  camera.updateProjectionMatrix();
+  controls.target.set(0, size.y * 0.3, 0);
+  controls.update();
+}
+
+function hideDropOverlay() {
+  document.getElementById('drop-overlay').classList.add('hidden');
+}
+
+// Load default
+loadModel(buildDefaultModel('box'));
+
+// ── Material applier ──────────────────────────────────────────────────────
+function applyMaterialSettings() {
+  currentMeshes.forEach(mesh => {
+    const mat = mesh.material;
+    if (!mat) return;
+    const mats = Array.isArray(mat) ? mat : [mat];
+    mats.forEach(m => {
+      if (m.color) m.color.copy(materialColor);
+      if ('metalness' in m) m.metalness = metalness;
+      if ('roughness' in m) m.roughness = roughness;
+      m.wireframe = wireframe;
+      if ('flatShading' in m) { m.flatShading = flatShading; m.needsUpdate = true; }
+    });
+  });
+}
+
+// ── Env lighting (procedural gradient, no HDR fetch needed) ──────────────
+const envPresets = {
+  studio: { bg: 0x0f0f13, amb: 0.4, dir: 0xffffff, dirI: 1.6, fill: 0x8888ff, fillI: 0.4 },
+  sunset: { bg: 0x1a0a05, amb: 0.3, dir: 0xff8844, dirI: 2.0, fill: 0xff4422, fillI: 0.3 },
+  dawn:   { bg: 0x0a0a18, amb: 0.2, dir: 0xffd4a0, dirI: 1.2, fill: 0x6688ff, fillI: 0.5 },
+  night:  { bg: 0x010108, amb: 0.15, dir: 0x4466ff, dirI: 0.8, fill: 0x001133, fillI: 0.2 },
+  warehouse: { bg: 0x111118, amb: 0.5, dir: 0xffeecc, dirI: 1.4, fill: 0xffffff, fillI: 0.2 },
+  forest: { bg: 0x050e08, amb: 0.35, dir: 0x88ffaa, dirI: 1.0, fill: 0x226633, fillI: 0.4 },
+  apartment: { bg: 0x0d0d12, amb: 0.45, dir: 0xfff0cc, dirI: 1.3, fill: 0xaaaaff, fillI: 0.3 },
+  city:   { bg: 0x0a0c14, amb: 0.3, dir: 0x6699ff, dirI: 1.5, fill: 0xff9900, fillI: 0.2 },
+  lobby:  { bg: 0x0e0c08, amb: 0.5, dir: 0xffddaa, dirI: 1.8, fill: 0x886644, fillI: 0.3 },
+};
+
+function applyEnv(preset) {
+  const e = envPresets[preset] || envPresets.studio;
+  scene.background = new THREE.Color(e.bg);
+  ambientLight.intensity = e.amb;
+  dirLight.color.setHex(e.dir); dirLight.intensity = e.dirI;
+  fillLight.color.setHex(e.fill); fillLight.intensity = e.fillI;
+  const fogColor = new THREE.Color(e.bg);
+  scene.fog = new THREE.Fog(fogColor, 8, 20);
+}
+applyEnv('studio');
+
+// ── GLB loader ────────────────────────────────────────────────────────────
+const gltfLoader = new THREE.GLTFLoader();
+
+function loadGLB(buffer, name) {
+  const spinner = document.getElementById('spinner');
+  spinner.classList.add('show');
+  const blob = new Blob([buffer], { type: 'model/gltf-binary' });
+  const url = URL.createObjectURL(blob);
+  gltfLoader.load(url, gltf => {
+    URL.revokeObjectURL(url);
+    spinner.classList.remove('show');
+    loadModel(gltf.scene);
+    toast(`Loaded: ${name}`);
+  }, undefined, err => {
+    spinner.classList.remove('show');
+    toast('Error loading model');
+    console.error(err);
+  });
+}
+
+// ── Drag & drop ───────────────────────────────────────────────────────────
+const dropActive = document.getElementById('drop-active');
+let dragCounter = 0;
+
+document.addEventListener('dragenter', e => { e.preventDefault(); dragCounter++; dropActive.classList.add('show'); });
+document.addEventListener('dragleave', () => { dragCounter--; if (dragCounter <= 0) { dragCounter = 0; dropActive.classList.remove('show'); } });
+document.addEventListener('dragover', e => { e.preventDefault(); });
+document.addEventListener('drop', e => {
+  e.preventDefault(); dragCounter = 0; dropActive.classList.remove('show');
+  const file = e.dataTransfer.files[0];
+  if (!file) return;
+  if (!file.name.match(/\.(glb|gltf)$/i)) { toast('Please drop a .glb or .gltf file'); return; }
+  const reader = new FileReader();
+  reader.onload = ev => loadGLB(ev.target.result, file.name);
+  reader.readAsArrayBuffer(file);
+});
+
+// File input
+document.getElementById('load-btn').addEventListener('click', () => document.getElementById('file-input').click());
+document.getElementById('file-input').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => loadGLB(ev.target.result, file.name);
+  reader.readAsArrayBuffer(file);
+});
+
+// ── UI Bindings ────────────────────────────────────────────────────────────
+function slider(id, valId, onchange) {
+  const el = document.getElementById(id);
+  const vEl = document.getElementById(valId);
+  el.addEventListener('input', () => { vEl.textContent = parseFloat(el.value).toFixed(1); onchange(parseFloat(el.value)); });
+}
+
+document.getElementById('c-color').addEventListener('input', e => {
+  materialColor.set(e.target.value);
+  applyMaterialSettings();
+});
+
+slider('c-metal', 'v-metal', v => { metalness = v; applyMaterialSettings(); });
+slider('c-rough', 'v-rough', v => { roughness = v; applyMaterialSettings(); });
+slider('c-exp', 'v-exp', v => { renderer.toneMappingExposure = v; });
+slider('c-rot', 'v-rot', v => { controls.autoRotateSpeed = v; });
+slider('c-fov', 'v-fov', v => { camera.fov = v; camera.updateProjectionMatrix(); });
+
+document.getElementById('c-env').addEventListener('change', e => applyEnv(e.target.value));
+
+document.getElementById('c-preset').addEventListener('change', e => {
+  loadModel(buildDefaultModel(e.target.value));
+});
+
+function toggle(id, onChange) {
+  const el = document.getElementById(id);
+  el.addEventListener('click', () => {
+    el.classList.toggle('on');
+    onChange(el.classList.contains('on'));
+  });
+}
+toggle('t-wire', v => { wireframe = v; applyMaterialSettings(); });
+toggle('t-flat', v => { flatShading = v; applyMaterialSettings(); });
+toggle('t-shadow', v => {
+  shadowsOn = v;
+  renderer.shadowMap.enabled = v;
+  dirLight.castShadow = v;
+});
+
+// Mobile panel toggle
+document.getElementById('panel-toggle').addEventListener('click', () => {
+  document.getElementById('panel').classList.toggle('open');
+});
+
+// ── Resize ────────────────────────────────────────────────────────────────
+const ro = new ResizeObserver(() => {
+  const w = wrap.clientWidth, h = wrap.clientHeight;
+  renderer.setSize(w, h);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+});
+ro.observe(wrap);
+
+// ── Toast ─────────────────────────────────────────────────────────────────
+let toastTimer;
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 2800);
+}
+
+// ── FPS counter ───────────────────────────────────────────────────────────
+let frames = 0, lastTime = performance.now();
+const perfEl = document.getElementById('perf');
+
+// ── Render loop ───────────────────────────────────────────────────────────
+const clock = new THREE.Clock();
+
+function animate() {
+  requestAnimationFrame(animate);
+  const delta = clock.getDelta();
+
+  // reduced-motion: pause auto-rotate
+  if (prefersReducedMotion) controls.autoRotate = false;
+
+  controls.update();
+  renderer.render(scene, camera);
+
+  frames++;
+  const now = performance.now();
+  if (now - lastTime > 1000) {
+    perfEl.textContent = `FPS: ${frames} | draw calls: ${renderer.info.render.calls}`;
+    frames = 0; lastTime = now;
+  }
+}
+animate();
+</script>
+</body>
+</html>
