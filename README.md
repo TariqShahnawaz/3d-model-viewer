@@ -4,8 +4,7 @@ A browser-based interactive 3D model viewer built with Three.js. Drop any .glb f
 
 # 3D Model Viewer & Configurator
 
-**Live URL:** https://claude.ai/artifact/Jncy9LxyyuqyMiMiq4fGaz
-
+**Live URL:** https://viewer3d-red.vercel.app/
 ---
 
 ## What I Built
